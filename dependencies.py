@@ -11,7 +11,7 @@ def install_package(package):
     return True
 
 def check_and_install_dependencies():
-    packages = ["openai", "numpy"]
+    packages = ["g4f"]
     installed = True
 
     for package in packages:
