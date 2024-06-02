@@ -1,13 +1,14 @@
-from flask import render_template, send_file, redirect
-from time import time
-from os import urandom
+import uuid
+from flask import render_template, redirect
 
 class Website:
     def __init__(self, app) -> None:
         self.app = app
+        def redirect_home():
+            return redirect('/chat')
         self.routes = {
             '/': {
-                'function': lambda: redirect('/chat'),
+                'function': redirect_home,
                 'methods': ['GET', 'POST']
             },
             '/chat/': {
@@ -18,23 +19,20 @@ class Website:
                 'function': self._chat,
                 'methods': ['GET', 'POST']
             },
-            '/assets/<folder>/<file>': {
-                'function': self._assets,
+            '/menu/': {
+                'function': redirect_home,
                 'methods': ['GET', 'POST']
-            }
+            },
+            '/settings/': {
+                'function': redirect_home,
+                'methods': ['GET', 'POST']
+            },
         }
 
     def _chat(self, conversation_id):
         if '-' not in conversation_id:
             return redirect('/chat')
-
-        return render_template('index.html', chat_id = conversation_id)
+        return render_template('index.html', chat_id=conversation_id)
 
     def _index(self):
-        return render_template('index.html', chat_id = f'{urandom(4).hex()}-{urandom(2).hex()}-{urandom(2).hex()}-{urandom(2).hex()}-{hex(int(time() * 1000))[2:]}')
-
-    def _assets(self, folder: str, file: str):
-        try:
-            return send_file(f"./../client/{folder}/{file}", as_attachment=False)
-        except:
-            return "File not found", 404
+        return render_template('index.html', chat_id=str(uuid.uuid4()))

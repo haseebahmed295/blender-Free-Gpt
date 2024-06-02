@@ -1,10 +1,11 @@
 import bpy
 import g4f
+import g4f.client
 g4f.debug.version_check = False
 def wrap_prompt(prompt):
-    wrapped = f"""Can you please write Blender code for me that accomplishes the following task: \n
-    {prompt}\n Don't use bpy.context.active_object. Color requires an alpha channel ex: red = (1,0,0,1). 
-    Make sure to return all  code in only one code blocks\n 
+    wrapped = f"""Can you please write Blender code for me that accomplishes the following task:
+    {prompt} . Don't write code which uses bpy.context.active_object. Color requires an alpha channel ex: red = (1,0,0,1). 
+    Make sure to return all  code in only one code blocks 
     """
     return wrapped
 
@@ -26,3 +27,13 @@ def append_error_as_comment(code_str, error):
     commented_error = "\n".join("# " + line for line in error_lines)
     updated_code = code_str + "\n # Code Output:\n" + commented_error
     return updated_code
+
+def stream_response(message , model):
+    client = g4f.client.Client()
+    response = client.chat.completions.create(
+        model=model,
+        messages=message,
+        stream=True,
+    )
+    for message in response:
+        yield message.choices[0].delta.content

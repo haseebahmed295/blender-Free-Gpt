@@ -1,27 +1,17 @@
 from __future__ import annotations
 
-import json, random
-from aiohttp import ClientSession
+import json
+from aiohttp import ClientSession, ClientTimeout
 
 from ..typing import AsyncResult, Messages
-from .base_provider import AsyncGeneratorProvider
+from .base_provider import AsyncGeneratorProvider, ProviderModelMixin
+from ..requests.raise_for_status import raise_for_status
 
-models = {
-    "claude-v2": "claude-2.0",
-    "claude-v2.1":"claude-2.1",
-    "gemini-pro": "google-gemini-pro"
-}
-urls = [
-    "https://free.chatgpt.org.uk",
-    "https://ai.chatgpt.org.uk"
-]
-
-class FreeChatgpt(AsyncGeneratorProvider):
+class FreeChatgpt(AsyncGeneratorProvider, ProviderModelMixin):
     url = "https://free.chatgpt.org.uk"
     working = True
-    supports_gpt_35_turbo = True
-    supports_gpt_4 = True
     supports_message_history = True
+    default_model = "google-gemini-pro"
 
     @classmethod
     async def create_async_generator(
@@ -29,13 +19,9 @@ class FreeChatgpt(AsyncGeneratorProvider):
         model: str,
         messages: Messages,
         proxy: str = None,
+        timeout: int = 120,
         **kwargs
     ) -> AsyncResult:
-        if model in models:
-            model = models[model]
-        elif not model:
-            model = "gpt-3.5-turbo"
-        url = random.choice(urls)
         headers = {
             "Accept": "application/json, text/event-stream",
             "Content-Type":"application/json",
@@ -49,19 +35,18 @@ class FreeChatgpt(AsyncGeneratorProvider):
             "Sec-Fetch-Site": "same-origin",
             "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", 
         }
-        async with ClientSession(headers=headers) as session:
+        async with ClientSession(headers=headers, timeout=ClientTimeout(timeout)) as session:
             data = {
-                "messages":messages,
-                "stream":True,
-                "model":model,
-                "temperature":0.5,
-                "presence_penalty":0,
-                "frequency_penalty":0,
-                "top_p":1,
-                **kwargs
+                "messages": messages,
+                "stream": True,
+                "model": cls.get_model(""),
+                "temperature": kwargs.get("temperature", 0.5),
+                "presence_penalty": kwargs.get("presence_penalty", 0),
+                "frequency_penalty": kwargs.get("frequency_penalty", 0),
+                "top_p": kwargs.get("top_p", 1)
             }
-            async with session.post(f'{url}/api/openai/v1/chat/completions', json=data, proxy=proxy) as response:
-                response.raise_for_status()
+            async with session.post(f'{cls.url}/api/openai/v1/chat/completions', json=data, proxy=proxy) as response:
+                await raise_for_status(response)
                 started = False
                 async for line in response.content:
                     if line.startswith(b"data: [DONE]"):

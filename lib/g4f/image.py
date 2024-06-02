@@ -11,10 +11,17 @@ try:
     has_requirements = True
 except ImportError:
     has_requirements = False
-    
+
 from .errors import MissingRequirementsError
 
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'}
+
+EXTENSIONS_MAP: dict[str, str] = {
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/gif": "gif",
+    "image/webp": "webp",
+}
 
 def to_image(image: ImageType, is_svg: bool = False) -> Image:
     """
@@ -28,9 +35,11 @@ def to_image(image: ImageType, is_svg: bool = False) -> Image:
     """
     if not has_requirements:
         raise MissingRequirementsError('Install "pillow" package for images')
+
     if isinstance(image, str):
         is_data_uri_an_image(image)
         image = extract_data_uri(image)
+
     if is_svg:
         try:
             import cairosvg
@@ -41,14 +50,15 @@ def to_image(image: ImageType, is_svg: bool = False) -> Image:
         buffer = BytesIO()
         cairosvg.svg2png(image, write_to=buffer)
         return open_image(buffer)
+
     if isinstance(image, bytes):
         is_accepted_format(image)
         return open_image(BytesIO(image))
     elif not isinstance(image, Image):
         image = open_image(image)
-        copy = image.copy()
-        copy.format = image.format
-        return copy
+        image.load()
+        return image
+
     return image
 
 def is_allowed_extension(filename: str) -> bool:
@@ -83,7 +93,7 @@ def is_data_uri_an_image(data_uri: str) -> bool:
     if image_format not in ALLOWED_EXTENSIONS and image_format != "svg+xml":
         raise ValueError("Invalid image format (from mime file type).")
 
-def is_accepted_format(binary_data: bytes) -> bool:
+def is_accepted_format(binary_data: bytes) -> str:
     """
     Checks if the given binary data represents an image with an accepted format.
 
@@ -94,17 +104,17 @@ def is_accepted_format(binary_data: bytes) -> bool:
         ValueError: If the image format is not allowed.
     """
     if binary_data.startswith(b'\xFF\xD8\xFF'):
-        pass # It's a JPEG image
+        return "image/jpeg"
     elif binary_data.startswith(b'\x89PNG\r\n\x1a\n'):
-        pass # It's a PNG image
+        return "image/png"
     elif binary_data.startswith(b'GIF87a') or binary_data.startswith(b'GIF89a'):
-        pass # It's a GIF image
+        return "image/gif"
     elif binary_data.startswith(b'\x89JFIF') or binary_data.startswith(b'JFIF\x00'):
-        pass # It's a JPEG image
+        return "image/jpeg"
     elif binary_data.startswith(b'\xFF\xD8'):
-        pass # It's a JPEG image
+        return "image/jpeg"
     elif binary_data.startswith(b'RIFF') and binary_data[8:12] == b'WEBP':
-        pass # It's a WebP image
+        return "image/webp"
     else:
         raise ValueError("Invalid image format (from magic code).")
 
@@ -138,12 +148,12 @@ def get_orientation(image: Image) -> int:
         if orientation is not None:
             return orientation
 
-def process_image(img: Image, new_width: int, new_height: int) -> Image:
+def process_image(image: Image, new_width: int, new_height: int) -> Image:
     """
     Processes the given image by adjusting its orientation and resizing it.
 
     Args:
-        img (Image): The image to process.
+        image (Image): The image to process.
         new_width (int): The new width of the image.
         new_height (int): The new height of the image.
 
@@ -151,25 +161,28 @@ def process_image(img: Image, new_width: int, new_height: int) -> Image:
         Image: The processed image.
     """
     # Fix orientation
-    orientation = get_orientation(img)
+    orientation = get_orientation(image)
     if orientation:
         if orientation > 4:
-            img = img.transpose(FLIP_LEFT_RIGHT)
+            image = image.transpose(FLIP_LEFT_RIGHT)
         if orientation in [3, 4]:
-            img = img.transpose(ROTATE_180)
+            image = image.transpose(ROTATE_180)
         if orientation in [5, 6]:
-            img = img.transpose(ROTATE_270)
+            image = image.transpose(ROTATE_270)
         if orientation in [7, 8]:
-            img = img.transpose(ROTATE_90)
+            image = image.transpose(ROTATE_90)
     # Resize image
-    img.thumbnail((new_width, new_height))
+    image.thumbnail((new_width, new_height))
     # Remove transparency
-    if img.mode != "RGB":
-        img.load()
-        white = new_image('RGB', img.size, (255, 255, 255))
-        white.paste(img, mask=img.split()[3]) 
+    if image.mode == "RGBA":
+        image.load()
+        white = new_image('RGB', image.size, (255, 255, 255))
+        white.paste(image, mask=image.split()[-1])
         return white
-    return img
+    # Convert to RGB for jpg format
+    elif image.mode != "RGB":
+        image = image.convert("RGB")
+    return image
 
 def to_base64_jpg(image: Image, compression_rate: float) -> str:
     """
@@ -186,7 +199,7 @@ def to_base64_jpg(image: Image, compression_rate: float) -> str:
     image.save(output_buffer, format="JPEG", quality=int(compression_rate * 100))
     return base64.b64encode(output_buffer.getvalue()).decode()
 
-def format_images_markdown(images, alt: str, preview: str = None) -> str:
+def format_images_markdown(images: Union[str, list], alt: str, preview: Union[str, list] = None) -> str:
     """
     Formats the given images as a markdown string.
 
@@ -199,31 +212,48 @@ def format_images_markdown(images, alt: str, preview: str = None) -> str:
         str: The formatted markdown string.
     """
     if isinstance(images, str):
-        images = f"[![{alt}]({preview.replace('{image}', images) if preview else images})]({images})"
+        result = f"[![{alt}]({preview.replace('{image}', images) if preview else images})]({images})"
     else:
-        images = [
-            f"[![#{idx+1} {alt}]({preview.replace('{image}', image) if preview else image})]({image})"
+        if not isinstance(preview, list):
+            preview = [preview.replace('{image}', image) if preview else image for image in images]
+        result = "\n".join(
+            f"[![#{idx+1} {alt}]({preview[idx]})]({image})"
+            #f'[<img src="{preview[idx]}" width="200" alt="#{idx+1} {alt}">]({image})'
             for idx, image in enumerate(images)
-        ]
-        images = "\n".join(images)
+        )
     start_flag = "<!-- generated images start -->\n"
     end_flag = "<!-- generated images end -->\n"
-    return f"\n{start_flag}{images}\n{end_flag}\n"
+    return f"\n{start_flag}{result}\n{end_flag}\n"
 
-def to_bytes(image: Image) -> bytes:
+def to_bytes(image: ImageType) -> bytes:
     """
     Converts the given image to bytes.
 
     Args:
-        image (Image.Image): The image to convert.
+        image (ImageType): The image to convert.
 
     Returns:
         bytes: The image as bytes.
     """
-    bytes_io = BytesIO()
-    image.save(bytes_io, image.format)
-    image.seek(0)
-    return bytes_io.getvalue()
+    if isinstance(image, bytes):
+        return image
+    elif isinstance(image, str):
+        is_data_uri_an_image(image)
+        return extract_data_uri(image)
+    elif isinstance(image, Image):
+        bytes_io = BytesIO()
+        image.save(bytes_io, image.format)
+        image.seek(0)
+        return bytes_io.getvalue()
+    else:
+        return image.read()
+
+def to_data_uri(image: ImageType) -> str:
+    if not isinstance(image, str):
+        data = to_bytes(image)
+        data_base64 = base64.b64encode(data).decode()
+        return f"data:{is_accepted_format(data)};base64,{data_base64}"
+    return image
 
 class ImageResponse:
     def __init__(
@@ -235,19 +265,41 @@ class ImageResponse:
         self.images = images
         self.alt = alt
         self.options = options
-        
+
     def __str__(self) -> str:
         return format_images_markdown(self.images, self.alt, self.get("preview"))
-    
+
     def get(self, key: str):
         return self.options.get(key)
-    
+
+    def get_list(self) -> list[str]:
+        return [self.images] if isinstance(self.images, str) else self.images
+
+class ImagePreview(ImageResponse):
+    def __str__(self):
+        return ""
+
+    def to_string(self):
+        return super().__str__()
+
+class ImageDataResponse():
+    def __init__(
+        self,
+        images: Union[str, list],
+        alt: str,
+    ):
+        self.images = images
+        self.alt = alt
+
+    def get_list(self) -> list[str]:
+        return [self.images] if isinstance(self.images, str) else self.images
+
 class ImageRequest:
     def __init__(
         self,
         options: dict = {}
     ):
         self.options = options
-    
+
     def get(self, key: str):
         return self.options.get(key)

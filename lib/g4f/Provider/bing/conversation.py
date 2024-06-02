@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from aiohttp import ClientSession
+from ...requests import StreamSession, raise_for_status
+from ...errors import RateLimitError
+from ...providers.conversation import BaseConversation
 
-class Conversation:
+class Conversation(BaseConversation):
     """
     Represents a conversation with specific attributes.
     """
@@ -19,7 +21,7 @@ class Conversation:
         self.clientId = clientId
         self.conversationSignature = conversationSignature
 
-async def create_conversation(session: ClientSession, proxy: str = None) -> Conversation:
+async def create_conversation(session: StreamSession, headers: dict, tone: str) -> Conversation:
     """
     Create a new conversation asynchronously.
 
@@ -30,22 +32,25 @@ async def create_conversation(session: ClientSession, proxy: str = None) -> Conv
     Returns:
     Conversation: An instance representing the created conversation.
     """
-    url = 'https://www.bing.com/turing/conversation/create?bundleVersion=1.1199.4'
-    async with session.get(url, proxy=proxy) as response:
-        try:
-            data = await response.json()
-        except:
-            raise RuntimeError(f"Response: {await response.text()}")
-
-        conversationId = data.get('conversationId')
-        clientId = data.get('clientId')
-        conversationSignature = response.headers.get('X-Sydney-Encryptedconversationsignature')
-
-        if not conversationId or not clientId or not conversationSignature:
-            raise Exception('Failed to create conversation.')
-        return Conversation(conversationId, clientId, conversationSignature)
+    if tone == "Copilot":
+        url = "https://copilot.microsoft.com/turing/conversation/create?bundleVersion=1.1690.0"
+    else:
+        url = "https://www.bing.com/turing/conversation/create?bundleVersion=1.1690.0"
+    async with session.get(url, headers=headers) as response:
+        if response.status == 404:
+            raise RateLimitError("Response 404: Do less requests and reuse conversations")
+        await raise_for_status(response, "Failed to create conversation")
+        data = await response.json()
+    if not data:
+        raise RuntimeError('Empty response: Failed to create conversation')
+    conversationId = data.get('conversationId')
+    clientId = data.get('clientId')
+    conversationSignature = response.headers.get('X-Sydney-Encryptedconversationsignature')
+    if not conversationId or not clientId or not conversationSignature:
+        raise RuntimeError('Empty fields: Failed to create conversation')
+    return Conversation(conversationId, clientId, conversationSignature)
         
-async def list_conversations(session: ClientSession) -> list:
+async def list_conversations(session: StreamSession) -> list:
     """
     List all conversations asynchronously.
 
@@ -59,8 +64,8 @@ async def list_conversations(session: ClientSession) -> list:
     async with session.get(url) as response:
         response = await response.json()
         return response["chats"]
-        
-async def delete_conversation(session: ClientSession, conversation: Conversation, proxy: str = None) -> bool:
+
+async def delete_conversation(session: StreamSession, conversation: Conversation, headers: dict) -> bool:
     """
     Delete a conversation asynchronously.
 
@@ -81,7 +86,7 @@ async def delete_conversation(session: ClientSession, conversation: Conversation
         "optionsSets": ["autosave"]
     }
     try:
-        async with session.post(url, json=json, proxy=proxy) as response:
+        async with session.post(url, json=json, headers=headers) as response:
             response = await response.json()
             return response["result"]["value"] == "Success"
     except:

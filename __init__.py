@@ -10,6 +10,7 @@ libs_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "lib")
 if libs_path not in sys.path:
     sys.path.append(libs_path)
 
+import g4f
 from .response import *
 from .get_models import *
 bl_info = {
@@ -17,7 +18,7 @@ bl_info = {
     "blender": (3, 00, 0),
     "category": "Object",
     "author": "haseebahmed295",
-    "version": (1, 0, 0),
+    "version": (1, 1, 0),
     "location": "3D View > UI > Free Gpt",
     "description": "Automate Blender using GPT without an API key.",
     "warning": "",
@@ -127,10 +128,11 @@ class G4F_OT_Execute(bpy.types.Operator):
             context.scene.g4f_button_pressed = False   
 
         model = context.scene.ai_models
-        long_running_thread = threading.Thread(target=self.generate_g4f_code , args=(context.scene.g4f_chat_input, 
-                                                                                    context.scene.g4f_chat_history,
-                                                                                    model, system_prompt,callback,))
-        long_running_thread.start()
+        self.generate_g4f_code(context.scene.g4f_chat_input, context.scene.g4f_chat_history,model, system_prompt,callback,)
+        # long_running_thread = threading.Thread(target=self.generate_g4f_code , args=(context.scene.g4f_chat_input, 
+        #                                                                             context.scene.g4f_chat_history,
+        #                                                                             model, system_prompt,callback,))
+        # long_running_thread.start()
         
         return {'FINISHED'}
     def generate_g4f_code(self, prompt, chat_history, model, system_prompt, callback):
@@ -142,26 +144,23 @@ class G4F_OT_Execute(bpy.types.Operator):
                 formatted_messages.append({"role": message.type.lower(), "content": message.content})
 
         formatted_messages.append({"role": "user", "content": wrap_prompt(prompt)})
-        stream = g4f.ModelUtils.convert[model].best_provider.supports_stream
+        stream = g4f.models.ModelUtils.convert[model].best_provider.supports_stream
         try:
-            response = g4f.ChatCompletion.create(
-                model=model,
-                messages=formatted_messages,
-                stream=stream,
-            )
             if stream:
                 completion_text = ''
-                for chunk in response:
-                    completion_text += chunk
-                    print(chunk, flush=True, end='')
+                for chunk in stream_response(formatted_messages, model):
+                    completion_text += chunk if chunk else ''
+                    print(chunk or '', flush=True, end='')
+                print("\n")
             else:
-                completion_text = response
+                client = g4f.client.Client()
+                completion_text = str(client.chat.completions.create(model=model, messages=formatted_messages))
+                print(completion_text)
             completion_text = re.findall(r'```(.*?)```', completion_text, re.DOTALL)[0]
             completion_text = re.sub(r'^python', '', completion_text, flags=re.MULTILINE)
-
             callback(completion_text)
         except Exception as e:
-            self.report({'ERROR'}, f"Error with Ai: {e}")
+            self.report({'ERROR'}, f"Error with Ai: {traceback.format_exc()}")
             bpy.context.scene.g4f_button_pressed = False
 
 class G4T_Del_Message(bpy.types.Operator):
