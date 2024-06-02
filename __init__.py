@@ -18,7 +18,7 @@ bl_info = {
     "blender": (3, 00, 0),
     "category": "Object",
     "author": "haseebahmed295",
-    "version": (1, 1, 0),
+    "version": (1, 2, 0),
     "location": "3D View > UI > Free Gpt",
     "description": "Automate Blender using GPT without an API key.",
     "warning": "",
@@ -128,11 +128,11 @@ class G4F_OT_Execute(bpy.types.Operator):
             context.scene.g4f_button_pressed = False   
 
         model = context.scene.ai_models
-        self.generate_g4f_code(context.scene.g4f_chat_input, context.scene.g4f_chat_history,model, system_prompt,callback,)
-        # long_running_thread = threading.Thread(target=self.generate_g4f_code , args=(context.scene.g4f_chat_input, 
-        #                                                                             context.scene.g4f_chat_history,
-        #                                                                             model, system_prompt,callback,))
-        # long_running_thread.start()
+        # self.generate_g4f_code(context.scene.g4f_chat_input, context.scene.g4f_chat_history,model, system_prompt,callback,)
+        long_running_thread = threading.Thread(target=self.generate_g4f_code , args=(context.scene.g4f_chat_input, 
+                                                                                    context.scene.g4f_chat_history,
+                                                                                    model, system_prompt,callback,))
+        long_running_thread.start()
         
         return {'FINISHED'}
     def generate_g4f_code(self, prompt, chat_history, model, system_prompt, callback):
