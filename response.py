@@ -3,9 +3,7 @@ import g4f
 import g4f.client
 g4f.debug.version_check = False
 def wrap_prompt(prompt):
-    wrapped = f"""Can you please write Blender code for me that accomplishes the following task:
-    {prompt} . Don't write code which uses bpy.context.active_object. Color requires an alpha channel ex: red = (1,0,0,1). 
-    Make sure to return all  code in only one code blocks 
+    wrapped = f"""{prompt} . Don't write code which uses bpy.context.active_object.Make sure to return all code in only one code blocks 
     """
     return wrapped
 

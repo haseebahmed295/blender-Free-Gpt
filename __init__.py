@@ -1,24 +1,19 @@
 import re
-import sys
-import os
 import traceback
 import bpy
 import bpy.props
 import threading
-
-libs_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "lib")
-if libs_path not in sys.path:
-    sys.path.append(libs_path)
-
+import inspect
+import sys
 import g4f
 from .response import *
 from .get_models import *
 bl_info = {
-    "name": "Blender Free Gpt",
+    "name": "Free Gpt",
     "blender": (3, 00, 0),
     "category": "Object",
     "author": "haseebahmed295",
-    "version": (1, 2, 0),
+    "version": (1, 2, 2),
     "location": "3D View > UI > Free Gpt",
     "description": "Automate Blender using GPT without an API key.",
     "warning": "",
@@ -28,9 +23,17 @@ bl_info = {
 
 from .system_commad import system_prompt
 
-class Chat_History_Panel(bpy.types.Panel):
+def get_classes() -> list:
+    current_module = sys.modules[__name__]
+    classes = []
+    for name, obj in inspect.getmembers(current_module):
+        if inspect.isclass(obj) and obj.__module__ == __name__:
+            classes.append(obj)
+    return classes
+
+class Chat_PT_history(bpy.types.Panel):
     bl_label = "Chat History"
-    bl_idname = "G4fchat_PT_Panel"
+    bl_idname = "G4T_PT_History"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = 'Free Gpt'
@@ -55,7 +58,7 @@ class Chat_History_Panel(bpy.types.Panel):
         column.separator()
 
 
-class G4F_PT_Panel(bpy.types.Panel):
+class G4f_PT_main(bpy.types.Panel):
     bl_label = "Assistant GPT"
     bl_idname = "G4T_PT_Panel"
     bl_space_type = 'VIEW_3D'
@@ -64,7 +67,7 @@ class G4F_PT_Panel(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        column = layout.column(align=True)
+        column = layout.column()
 
         column.label(text="GPT Model:")
         column.prop(context.scene, "ai_models", text="")
@@ -76,7 +79,7 @@ class G4F_PT_Panel(bpy.types.Panel):
         
         button_label = "Please wait..." if context.scene.g4f_button_pressed else "Prompt"
         row = column.row(align=True)
-        row.operator(G4F_OT_Execute.bl_idname, text=button_label)
+        row.operator(G4F_OT_Callback.bl_idname, text=button_label)
         column.separator()
 
 
@@ -93,75 +96,131 @@ class G4F_OT_ClearChat(bpy.types.Operator):
         return {'FINISHED'}
 
 
-class G4F_OT_Execute(bpy.types.Operator):
-    bl_idname = "g4f.prompt"
-    bl_label = "Send Message"
-    bl_description = "Send Prompy to AI see console for live response"
-    bl_options = {'REGISTER', 'UNDO'}
+import bpy
+import threading
+import re
+import traceback
+
+class G4F_OT_Callback(bpy.types.Operator):
+    bl_idname = "free_gpt_thread.callback"
+    bl_label = "Callback for Thread"
+    bl_description = "Callback Model Operator"
 
     @classmethod
     def poll(cls, context):
-        return True if not context.scene.g4f_button_pressed else False
+        return not context.scene.g4f_button_pressed
+
+    def modal(self, context, event: bpy.types.Event) -> set:
+        if event.type == 'ESC':
+            self.report({'INFO'}, "Aborting...")
+            self.is_cancelled = True
+            return {'PASS_THROUGH'}
+
+        if event.type == 'TIMER':
+            if self.is_cancelled and self.cancel_done:
+                context.scene.g4f_button_pressed = False
+                if self.error:
+                    self.report({'ERROR'}, str(self.error))
+                self.report({'INFO'}, "Aborted Successfully")
+                return {'CANCELLED'}
+            if self.is_done and not self.is_cancelled:
+                self.callback(context, self.code_buffer)
+                return {'FINISHED'}
+
+        return {'PASS_THROUGH'}
+
     def execute(self, context):
         context.scene.g4f_button_pressed = True
+        self.is_done = False
+        self.code_buffer = None
+        self.is_cancelled = False
+        self.cancel_done = False
+        self.error = None
 
-        def callback(output):
-            blender_code = output
-            message = context.scene.g4f_chat_history.add()
-            message.type = 'user'
-            message.content = context.scene.g4f_chat_input
-            context.scene.g4f_chat_input = ""
+        ai_model = context.scene.ai_models
+        chat_input = context.scene.g4f_chat_input
+        chat_history = context.scene.g4f_chat_history
 
-            if blender_code:
-                global_namespace = globals().copy()
-                try:
-                    exec(blender_code, global_namespace)
-                except Exception as e:
-                    self.report({'ERROR'}, f"Error executing code from Ai: {e}")
-                    error = traceback.format_exc()
-                    blender_code = append_error_as_comment(blender_code,error)
-                finally:
-                    message = context.scene.g4f_chat_history.add()
-                    message.type = 'assistant'
-                    message.content = blender_code
+        threading.Thread(target=self.generate_g4f_code, args=(
+            chat_input, chat_history, ai_model, system_prompt
+        )).start()
 
-            context.scene.g4f_button_pressed = False   
+        self._timer = context.window_manager.event_timer_add(0.01, window=context.window)
+        self.report({'INFO'}, 'Generating... (ESC=Abort)')
+        context.window_manager.modal_handler_add(self)
+        return {'RUNNING_MODAL'}
 
-        model = context.scene.ai_models
-        # self.generate_g4f_code(context.scene.g4f_chat_input, context.scene.g4f_chat_history,model, system_prompt,callback,)
-        long_running_thread = threading.Thread(target=self.generate_g4f_code , args=(context.scene.g4f_chat_input, 
-                                                                                    context.scene.g4f_chat_history,
-                                                                                    model, system_prompt,callback,))
-        long_running_thread.start()
-        
-        return {'FINISHED'}
-    def generate_g4f_code(self, prompt, chat_history, model, system_prompt, callback):
+    def generate_g4f_code(self, prompt, chat_history, model, system_prompt):
         formatted_messages = [{"role": "system", "content": system_prompt}]
         for message in chat_history[-10:]:
-            if message.type == "assistant":
-                formatted_messages.append({"role": "assistant", "content": "```\n" + message.content + "\n```"})
-            else:
-                formatted_messages.append({"role": message.type.lower(), "content": message.content})
-
+            role = "assistant" if message.type == "assistant" else message.type.lower()
+            content = f"```\n{message.content}\n```" if message.type == "assistant" else message.content
+            formatted_messages.append({"role": role, "content": content})
         formatted_messages.append({"role": "user", "content": wrap_prompt(prompt)})
+
         stream = g4f.models.ModelUtils.convert[model].best_provider.supports_stream
+
         try:
             if stream:
                 completion_text = ''
                 for chunk in stream_response(formatted_messages, model):
-                    completion_text += chunk if chunk else ''
+                    if self.is_cancelled:
+                        self.cancel_done = True
+                        return
+                    completion_text += chunk or ''
                     print(chunk or '', flush=True, end='')
                 print("\n")
             else:
                 client = g4f.client.Client()
-                completion_text = str(client.chat.completions.create(model=model, messages=formatted_messages))
+                completion_text = str(client.chat.completions.create(
+                    model=model, messages=formatted_messages))
                 print(completion_text)
-            completion_text = re.findall(r'```(.*?)```', completion_text, re.DOTALL)[0]
-            completion_text = re.sub(r'^python', '', completion_text, flags=re.MULTILINE)
-            callback(completion_text)
+
+                if self.is_cancelled:
+                    self.cancel_done = True
+                    return
+
+            code = re.findall(r'```(.*?)```', completion_text, re.DOTALL)[0]
+            self.code_buffer = re.sub(r'^python', '', code, flags=re.MULTILINE)
+            self.is_done = True
+
         except Exception as e:
-            self.report({'ERROR'}, f"Error with Ai: {traceback.format_exc()}")
-            bpy.context.scene.g4f_button_pressed = False
+            self.error = e
+            print("Canceling...", e)
+            self.is_cancelled = True
+            self.cancel_done = True
+
+    def callback(self, context, output):
+        if self.is_cancelled:
+            self.cancel_done = True
+            return
+
+        blender_code = output
+        message = context.scene.g4f_chat_history.add()
+        message.type = 'user'
+        message.content = context.scene.g4f_chat_input
+        context.scene.g4f_chat_input = ""
+
+        if blender_code:
+            global_namespace = globals().copy()
+            try:
+                override = bpy.context.copy()
+                override["selected_objects"] = list(bpy.context.scene.objects)
+                with context.temp_override(**override):
+                    exec(blender_code, global_namespace)
+            except Exception as e:
+                self.report({'ERROR'}, f"Error executing code from AI: {e}")
+                error = traceback.format_exc()
+                blender_code = append_error_as_comment(blender_code, error)
+            finally:
+                message = context.scene.g4f_chat_history.add()
+                message.type = 'assistant'
+                message.content = blender_code
+
+        context.scene.g4f_button_pressed = False
+
+    def cancel(self, context):
+        context.window_manager.event_timer_remove(self._timer)
 
 class G4T_Del_Message(bpy.types.Operator):
     bl_idname = "gpt.del_message"
@@ -205,7 +264,6 @@ class G4F_OT_ShowCode(bpy.types.Operator):
 
         return {'FINISHED'}
 
-
 class G4FPreferences(bpy.types.AddonPreferences):
     bl_idname = __name__
 
@@ -214,20 +272,9 @@ class G4FPreferences(bpy.types.AddonPreferences):
         layout = self.layout
         
 
-classes = (
-    G4FPreferences,
-    G4F_OT_Execute,
-    Chat_History_Panel,
-    G4F_PT_Panel,
-    G4F_OT_ClearChat,
-    G4F_OT_ShowCode,
-    G4T_Del_Message,
-)
-
-
 def register():
-    for cls in classes:
-        bpy.utils.register_class(cls)
+    for cls in get_classes():
+            bpy.utils.register_class(cls)
     bpy.types.Scene.g4f_chat_history = bpy.props.CollectionProperty(type=bpy.types.PropertyGroup)
     bpy.types.Scene.ai_models = bpy.props.EnumProperty(
         name="AI Model",
@@ -239,14 +286,13 @@ def register():
         description="Enter your Command",
         default="",
     )
-    bpy.types.Scene.g4f_button_pressed = bpy.props.BoolProperty(default=False)
     bpy.types.PropertyGroup.type = bpy.props.StringProperty()
     bpy.types.PropertyGroup.content = bpy.props.StringProperty()
-
+    bpy.types.Scene.g4f_button_pressed = bpy.props.BoolProperty()
 
 def unregister():
-    for cls in classes:
-        bpy.utils.unregister_class(cls)
+    for cls in get_classes():
+            bpy.utils.unregister_class(cls)
 
     del bpy.types.Scene.g4f_chat_history
     del bpy.types.Scene.g4f_chat_input

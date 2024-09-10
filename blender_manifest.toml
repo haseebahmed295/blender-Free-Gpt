@@ -1,0 +1,49 @@
+schema_version = "1.0.0"
+id = "blender_free_gpt"
+version = "1.2.2"
+name = "Free Gpt"
+tagline = "Automate Blender using GPT without an API key"
+maintainer = "haseebahmad295 <quicktiptech@gmail.com>"
+type = "add-on"
+
+website = "https://github.com/haseebahmed295/blender-Free-Gpt"
+
+tags = ["Animation", "Object"]
+
+wheels =[
+"./wheels/aiohappyeyeballs-2.4.0-py3-none-any.whl",
+"./wheels/aiohttp-3.10.5-cp311-cp311-win_amd64.whl",
+"./wheels/aiosignal-1.3.1-py3-none-any.whl",
+"./wheels/attrs-24.2.0-py3-none-any.whl",
+"./wheels/Brotli-1.1.0-cp311-cp311-win_amd64.whl",
+"./wheels/certifi-2024.8.30-py3-none-any.whl",
+"./wheels/cffi-1.17.1-cp311-cp311-win_amd64.whl",
+"./wheels/charset_normalizer-3.3.2-cp311-cp311-win_amd64.whl",
+"./wheels/curl_cffi-0.7.1-cp38-abi3-win_amd64.whl",
+"./wheels/frozenlist-1.4.1-cp311-cp311-win_amd64.whl",
+"./wheels/g4f-0.3.2.6-py3-none-any.whl",
+"./wheels/idna-3.8-py3-none-any.whl",
+"./wheels/multidict-6.1.0-cp311-cp311-win_amd64.whl",
+"./wheels/pycryptodome-3.20.0-cp35-abi3-win_amd64.whl",
+"./wheels/requests-2.32.3-py3-none-any.whl",
+"./wheels/urllib3-2.2.2-py3-none-any.whl",
+"./wheels/yarl-1.11.1-cp311-cp311-win_amd64.whl",
+]
+
+
+
+blender_version_min = "4.2.0"
+license = [
+  "SPDX:GPL-3.0-or-later",
+]
+
+[permissions]
+network = "Needed to prompt ai  models"
+
+
+
+[build]
+paths_exclude_pattern = [
+  "/.git/",
+  "__pycache__/",
+]
