@@ -10,7 +10,7 @@ from .response import *
 from .get_models import *
 bl_info = {
     "name": "Free Gpt",
-    "blender": (3, 00, 0),
+    "blender": (4, 2, 0),
     "category": "Object",
     "author": "haseebahmed295",
     "version": (1, 2, 2),
