@@ -1,6 +1,6 @@
-# Blender Free Gpt
+# Free Gpt
 
-#### Blender Free Gpt addon allows you to control Blender using ChatGPT. It allows you to control Blender using ChatGPT **without an API key 😎**
+#### Free Gpt addon allows you to control Blender using ChatGPT. It allows you to control Blender using ChatGPT **without an API key 😎**
 
 ## Features:
 - Allows you to chat with 81 different models for free 
